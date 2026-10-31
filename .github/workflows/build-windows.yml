@@ -1,0 +1,74 @@
+name: Build RISEN TWEAKS for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Locate project files
+        shell: pwsh
+        run: |
+          if (Test-Path "main.py") {
+            $projectDir = "."
+          } elseif (Test-Path "RISEN_TWEAKS_V2/main.py") {
+            $projectDir = "RISEN_TWEAKS_V2"
+          } else {
+            throw "main.py wurde nicht gefunden. Lege main.py im Repository-Root oder im Ordner RISEN_TWEAKS_V2 ab."
+          }
+
+          if (-not (Test-Path "$projectDir/requirements.txt")) {
+            throw "requirements.txt fehlt im Projektordner: $projectDir"
+          }
+
+          "PROJECT_DIR=$projectDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Projektordner: $projectDir"
+
+      - name: Set up Python (only on GitHub runner)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "$env:PROJECT_DIR/requirements.txt" pyinstaller
+
+      - name: Check Python syntax
+        shell: pwsh
+        run: |
+          python -m compileall -q "$env:PROJECT_DIR/main.py"
+
+      - name: Build portable Windows EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name RISEN_TWEAKS `
+            --distpath "$env:PROJECT_DIR/dist" `
+            --workpath "$env:RUNNER_TEMP/pyinstaller-work" `
+            --specpath "$env:RUNNER_TEMP/pyinstaller-spec" `
+            --collect-all customtkinter `
+            "$env:PROJECT_DIR/main.py"
+
+          if (-not (Test-Path "$env:PROJECT_DIR/dist/RISEN_TWEAKS.exe")) {
+            throw "Build fehlgeschlagen: RISEN_TWEAKS.exe wurde nicht erstellt."
+          }
+
+      - name: Upload portable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: RISEN_TWEAKS-Windows-EXE
+          path: ${{ env.PROJECT_DIR }}/dist/RISEN_TWEAKS.exe
+          if-no-files-found: error
+          retention-days: 14
